@@ -1,5 +1,5 @@
 fastapi[all]
-openai
+openai==0.28
 python-dotenv
 pydantic==1.*
 langchain
@@ -13,3 +13,5 @@ torch
 nltk
 youtube_transcript_api
 tempfile
+beautifulsoup4
+requests
