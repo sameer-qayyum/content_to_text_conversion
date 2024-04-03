@@ -12,3 +12,4 @@ transformers
 torch
 nltk
 youtube_transcript_api
+tempfile
