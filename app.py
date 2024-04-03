@@ -32,6 +32,11 @@ torch.set_num_threads(1)
 nltk.download('punkt')
 load_dotenv()
 
+# Initialize tokenizer and model for title generation
+tokenizer = AutoTokenizer.from_pretrained("fabiochiu/t5-small-medium-title-generation")
+model = AutoModelForSeq2SeqLM.from_pretrained("fabiochiu/t5-small-medium-title-generation")
+max_input_length = 2048
+
 def convert_pdf_to_images(file_path, scale=300/72):
 
     pdf_file = pdfium.PdfDocument(file_path)
@@ -114,7 +119,39 @@ def extract_from_pdf(pdf_url):
         else:
             return text_with_pytesseract
 
+def generate_title(text):
+    inputs = ["summarize: " + text]
+    inputs = tokenizer(inputs, max_length=max_input_length, truncation=True, return_tensors="pt")
+    output = model.generate(**inputs, num_beams=8, do_sample=True, min_length=6, max_length=24)
+    decoded_output = tokenizer.batch_decode(output, skip_special_tokens=True)[0]
+    predicted_title = nltk.sent_tokenize(decoded_output.strip())[0]
+    return predicted_title
 
+def extract_text_from_url(url):
+    try:
+        if "youtube.com/watch?v=" in url or "youtu.be/" in url:
+            video_id = url.split("v=")[1].split("&")[0] if "youtube.com" in url else url.split("youtu.be/")[1]
+            return extract_youtube_transcript(video_id), None
+        else:
+            headers = {"User-Agent": "Mozilla/5.0"}
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'html.parser')
+            return " ".join(soup.stripped_strings), None
+    except Exception as e:
+        return None, str(e)
+
+def extract_youtube_transcript(video_id):
+    try:
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        # Extract the 'text' from each entry in the transcript and join them
+        formatted_transcript = " ".join(entry['text'] for entry in transcript)
+        objective='Our goal is to create a step by step, checklist type guide from the available text. All the tiny nuances of the text should be kept'
+        if len(formatted_transcript)>10000;
+            formatted_transcript = summary(objective, formatted_transcript)
+        return formatted_transcript, None
+    except Exception as e:
+        return None, str(e)
 
 # Set this as an API endpoint via FastAPI
 app = FastAPI()
