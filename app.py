@@ -107,7 +107,7 @@ def extract_from_pdf(pdf_url):
     with open("pdf_output.txt", "w") as f:
         pass  # Opening in 'w' mode and closing it will clear the file
     #2. Convert PDF To Images
-    url='downloaded_file.pdf
+    url='downloaded_file.pdf'
     images_list = convert_pdf_to_images(url)
     #3. Extract Text from Images
     text_with_pytesseract = extract_text_from_img(images_list)
