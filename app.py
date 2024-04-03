@@ -15,9 +15,7 @@ from bs4 import BeautifulSoup
 import requests
 import json
 from langchain.schema import SystemMessage
-from fastapi import FastAPI
-import logging
-import pdfplumber
+from fastapi import FastAPI, HTTPException, Request
 from youtube_transcript_api import YouTubeTranscriptApi
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import nltk
@@ -26,8 +24,8 @@ from pytesseract import image_to_string
 from PIL import Image
 from io import BytesIO
 import pypdfium2 as pdfium
-import multiprocessing
 from tempfile import NamedTemporaryFile
+import tempfile
 torch.set_num_threads(1)
 nltk.download('punkt')
 load_dotenv()
@@ -97,27 +95,32 @@ def summary(objective, content):
     return output
 
 def extract_from_pdf(pdf_url):
-    #1. Download the file using the API request URL
+    # Download the file using the API request URL
     response = requests.get(pdf_url)
-    file = response.content
-    # Save the PDF file to the working directory of the API
-    with open('downloaded_file.pdf', 'wb') as f:
-        f.write(file)
-    # Clear the contents of the file first
-    with open("pdf_output.txt", "w") as f:
-        pass  # Opening in 'w' mode and closing it will clear the file
-    #2. Convert PDF To Images
-    url='downloaded_file.pdf'
-    images_list = convert_pdf_to_images(url)
-    #3. Extract Text from Images
-    text_with_pytesseract = extract_text_from_img(images_list)
-    #4. Summarize text if too large
-    objective='Our goal is to create a step by step, checklist type guide from the available text. All the tiny nuances of the text should be kept'
-    if len(text_with_pytesseract) > 10000:
+    response.raise_for_status()  # This will ensure to raise an error for bad responses
+
+    # Use a temporary file to save the PDF
+    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_pdf:
+        tmp_pdf.write(response.content)
+        tmp_pdf_path = tmp_pdf.name  # Store the path to the temporary file
+
+    try:
+        # 2. Convert PDF To Images
+        images_list = convert_pdf_to_images(tmp_pdf_path)
+
+        # 3. Extract Text from Images
+        text_with_pytesseract = extract_text_from_img(images_list)
+
+        # 4. Summarize text if too large
+        objective = 'Our goal is to create a step by step, checklist type guide from the available text. All the tiny nuances of the text should be kept'
+        if len(text_with_pytesseract) > 10000:
             output = summary(objective, text_with_pytesseract)
             return output
         else:
             return text_with_pytesseract
+    finally:
+        # Clean up the temporary file
+        os.unlink(tmp_pdf_path)
 
 def generate_title(text):
     inputs = ["summarize: " + text]
@@ -147,7 +150,7 @@ def extract_youtube_transcript(video_id):
         # Extract the 'text' from each entry in the transcript and join them
         formatted_transcript = " ".join(entry['text'] for entry in transcript)
         objective='Our goal is to create a step by step, checklist type guide from the available text. All the tiny nuances of the text should be kept'
-        if len(formatted_transcript)>10000;
+        if len(formatted_transcript)>10000:
             formatted_transcript = summary(objective, formatted_transcript)
         return formatted_transcript, None
     except Exception as e:
@@ -156,9 +159,10 @@ def extract_youtube_transcript(video_id):
 # Set this as an API endpoint via FastAPI
 app = FastAPI()
 @app.post("/convert") 
-def convert():
-    input_url = request.values.get('input_url')
-    unique_id = request.values.get('unique_id')
+async def convert(request: Request):
+    form_data = await request.form()
+    input_url = form_data.get('input_url')
+    unique_id = form_data.get('unique_id')
     file_contents = None  # Initialize to handle cases where URL doesn't match any condition
     if input_url.endswith('.pdf'):
         file_contents = extract_from_pdf(input_url)
@@ -171,6 +175,6 @@ def convert():
         file_contents_str = str(file_contents) if not isinstance(file_contents, str) else file_contents
         predicted_title = generate_title(file_contents_str)
         #predicted_title='test title'
-        return jsonify(text=file_contents, unique_id=unique_id, data_source=input_url, title=predicted_title)
+        return {"text": file_contents, "unique_id": unique_id, "data_source": input_url, "title": predicted_title}
     else:
-        return jsonify(error="Unsupported URL or no content extracted"), 400
+        raise HTTPException(status_code=400, detail="Unsupported URL or no content extracted")
