@@ -7,7 +7,7 @@ bs4
 tiktoken
 pypdfium2
 pytesseract
-PIL
+pillow
 transformers
 torch
 nltk
