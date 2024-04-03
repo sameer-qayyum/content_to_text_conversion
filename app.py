@@ -22,75 +22,54 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import nltk
 import torch
+from pytesseract import image_to_string
+from PIL import Image
+from io import BytesIO
+import pypdfium2 as pdfium
+import multiprocessing
+from tempfile import NamedTemporaryFile
 torch.set_num_threads(1)
 nltk.download('punkt')
 load_dotenv()
 
+def convert_pdf_to_images(file_path, scale=300/72):
 
-# 1. Tool for search
+    pdf_file = pdfium.PdfDocument(file_path)
 
+    page_indices = [i for i in range(len(pdf_file))]
 
-def search(query):
-    url = "https://google.serper.dev/search"
+    renderer = pdf_file.render(
+        pdfium.PdfBitmap.to_pil,
+        page_indices=page_indices,
+        scale=scale,
+    )
 
-    payload = json.dumps({
-        "q": query
-    })
+    final_images = []
 
-    headers = {
-        'X-API-KEY': serper_api_key,
-        'Content-Type': 'application/json'
-    }
+    for i, image in zip(page_indices, renderer):
 
-    response = requests.request("POST", url, headers=headers, data=payload)
+        image_byte_array = BytesIO()
+        image.save(image_byte_array, format='jpeg', optimize=True)
+        image_byte_array = image_byte_array.getvalue()
+        final_images.append(dict({i: image_byte_array}))
 
-    print(response.text)
+    return final_images
 
-    return response.text
+def extract_text_from_img(list_dict_final_images):
 
+    image_list = [list(data.values())[0] for data in list_dict_final_images]
+    image_content = []
 
-# 2. Tool for scraping
-def scrape_website(objective: str, url: str):
-    # scrape website, and also will summarize the content based on objective if the content is too large
-    # objective is the original objective & task that user give to the agent, url is the url of the website to be scraped
+    for index, image_bytes in enumerate(image_list):
 
-    print("Scraping website...")
-    # Define the headers for the request
-    headers = {
-        'Cache-Control': 'no-cache',
-        'Content-Type': 'application/json',
-    }
+        image = Image.open(BytesIO(image_bytes))
+        raw_text = str(image_to_string(image))
+        image_content.append(raw_text)
 
-    # Define the data to be sent in the request
-    data = {
-        "url": url
-    }
-
-    # Convert Python object to JSON string
-    data_json = json.dumps(data)
-
-    # Send the POST request
-    post_url = f"https://chrome.browserless.io/content?token={brwoserless_api_key}"
-    response = requests.post(post_url, headers=headers, data=data_json)
-
-    # Check the response status code
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.content, "html.parser")
-        text = soup.get_text()
-        print("CONTENTTTTTT:", text)
-
-        if len(text) > 10000:
-            output = summary(objective, text)
-            return output
-        else:
-            return text
-    else:
-        print(f"HTTP request failed with status code {response.status_code}")
-
+    return "\n".join(image_content)
 
 def summary(objective, content):
     llm = ChatOpenAI(temperature=0, model="gpt-3.5-turbo-16k-0613")
-
     text_splitter = RecursiveCharacterTextSplitter(
         separators=["\n\n", "\n"], chunk_size=10000, chunk_overlap=500)
     docs = text_splitter.create_documents([content])
@@ -109,103 +88,52 @@ def summary(objective, content):
         combine_prompt=map_prompt_template,
         verbose=True
     )
-
     output = summary_chain.run(input_documents=docs, objective=objective)
-
     return output
 
-
-class ScrapeWebsiteInput(BaseModel):
-    """Inputs for scrape_website"""
-    objective: str = Field(
-        description="The objective & task that users give to the agent")
-    url: str = Field(description="The url of the website to be scraped")
-
-
-class ScrapeWebsiteTool(BaseTool):
-    name = "scrape_website"
-    description = "useful when you need to get data from a website url, passing both url and objective to the function; DO NOT make up any url, the url should only be from the search results"
-    args_schema: Type[BaseModel] = ScrapeWebsiteInput
-
-    def _run(self, objective: str, url: str):
-        return scrape_website(objective, url)
-
-    def _arun(self, url: str):
-        raise NotImplementedError("error here")
-
-
-# 3. Create langchain agent with the tools above
-tools = [
-    Tool(
-        name="Search",
-        func=search,
-        description="useful for when you need to answer questions about current events, data. You should ask targeted questions"
-    ),
-    ScrapeWebsiteTool(),
-]
-
-system_message = SystemMessage(
-    content="""You are a world class researcher, who can do detailed research on any topic and produce facts based results; 
-            you do not make things up, you will try as hard as possible to gather facts & data to back up the research
-            
-            Please make sure you complete the objective above with the following rules:
-            1/ You should do enough research to gather as much information as possible about the objective
-            2/ If there are url of relevant links & articles, you will scrape it to gather more information
-            3/ After scraping & search, you should think "is there any new things i should search & scraping based on the data I collected to increase research quality?" If answer is yes, continue; But don't do this more than 3 iteratins
-            4/ You should not make things up, you should only write facts & data that you have gathered
-            5/ In the final output, You should include all reference data & links to back up your research; You should include all reference data & links to back up your research
-            6/ In the final output, You should include all reference data & links to back up your research; You should include all reference data & links to back up your research"""
-)
-
-agent_kwargs = {
-    "extra_prompt_messages": [MessagesPlaceholder(variable_name="memory")],
-    "system_message": system_message,
-}
-
-llm = ChatOpenAI(temperature=0, model="gpt-3.5-turbo-16k-0613")
-memory = ConversationSummaryBufferMemory(
-    memory_key="memory", return_messages=True, llm=llm, max_token_limit=1000)
-
-agent = initialize_agent(
-    tools,
-    llm,
-    agent=AgentType.OPENAI_FUNCTIONS,
-    verbose=True,
-    agent_kwargs=agent_kwargs,
-    memory=memory,
-)
+def extract_from_pdf(pdf_url):
+    #1. Download the file using the API request URL
+    response = requests.get(pdf_url)
+    file = response.content
+    # Save the PDF file to the working directory of the API
+    with open('downloaded_file.pdf', 'wb') as f:
+        f.write(file)
+    # Clear the contents of the file first
+    with open("pdf_output.txt", "w") as f:
+        pass  # Opening in 'w' mode and closing it will clear the file
+    #2. Convert PDF To Images
+    url='downloaded_file.pdf
+    images_list = convert_pdf_to_images(url)
+    #3. Extract Text from Images
+    text_with_pytesseract = extract_text_from_img(images_list)
+    #4. Summarize text if too large
+    objective='Our goal is to create a step by step, checklist type guide from the available text. All the tiny nuances of the text should be kept'
+    if len(text_with_pytesseract) > 10000:
+            output = summary(objective, text_with_pytesseract)
+            return output
+        else:
+            return text_with_pytesseract
 
 
-# 4. Use streamlit to create a web app
-# def main():
-#     st.set_page_config(page_title="AI research agent", page_icon=":bird:")
 
-#     st.header("AI research agent :bird:")
-#     query = st.text_input("Research goal")
-
-#     if query:
-#         st.write("Doing research for ", query)
-
-#         result = agent({"input": query})
-
-#         st.info(result['output'])
-
-
-# if __name__ == '__main__':
-#     main()
-
-
-# 5. Set this as an API endpoint via FastAPI
+# Set this as an API endpoint via FastAPI
 app = FastAPI()
-
-
-class Query(BaseModel):
-    query: str
-
-
-@app.post("/")
-def researchAgent(query: Query):
-    query = query.query
-    content = agent({"input": query})
-    actual_content = content['output']
-    return actual_content
+@app.post("/convert") 
+def convert():
+    input_url = request.values.get('input_url')
+    unique_id = request.values.get('unique_id')
+    file_contents = None  # Initialize to handle cases where URL doesn't match any condition
+    if input_url.endswith('.pdf'):
+        file_contents = extract_from_pdf(input_url)
+    else:
+        content, error = extract_text_from_url(input_url)
+        if error:
+            return jsonify(error=error), 500
+        file_contents = content
+    if file_contents:
+        file_contents_str = str(file_contents) if not isinstance(file_contents, str) else file_contents
+        predicted_title = generate_title(file_contents_str)
+        #predicted_title='test title'
+        return jsonify(text=file_contents, unique_id=unique_id, data_source=input_url, title=predicted_title)
+    else:
+        return jsonify(error="Unsupported URL or no content extracted"), 400
