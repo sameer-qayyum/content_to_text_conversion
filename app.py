@@ -1,6 +1,5 @@
 import os
 from dotenv import load_dotenv
-
 from langchain import PromptTemplate
 from langchain.agents import initialize_agent, Tool
 from langchain.agents import AgentType
@@ -17,10 +16,16 @@ import requests
 import json
 from langchain.schema import SystemMessage
 from fastapi import FastAPI
-
+import logging
+import pdfplumber
+from youtube_transcript_api import YouTubeTranscriptApi
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import nltk
+import torch
+torch.set_num_threads(1)
+nltk.download('punkt')
 load_dotenv()
-brwoserless_api_key = os.getenv("BROWSERLESS_API_KEY")
-serper_api_key = os.getenv("SERP_API_KEY")
+
 
 # 1. Tool for search
 
