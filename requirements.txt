@@ -12,6 +12,5 @@ transformers
 torch
 nltk
 youtube_transcript_api
-tempfile
 beautifulsoup4
 requests
