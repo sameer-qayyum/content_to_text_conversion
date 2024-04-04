@@ -14,6 +14,10 @@ import pypdfium2 as pdfium
 from tempfile import NamedTemporaryFile
 import tempfile
 import openai
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
+from langchain.chains.summarize import load_summarize_chain
 load_dotenv()
 
 def convert_pdf_to_images(file_path, scale=300/72):
