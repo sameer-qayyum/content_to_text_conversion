@@ -17,23 +17,14 @@ import json
 from langchain.schema import SystemMessage
 from fastapi import FastAPI, HTTPException, Request
 from youtube_transcript_api import YouTubeTranscriptApi
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-import nltk
-import torch
 from pytesseract import image_to_string
 from PIL import Image
 from io import BytesIO
 import pypdfium2 as pdfium
 from tempfile import NamedTemporaryFile
 import tempfile
-torch.set_num_threads(1)
-nltk.download('punkt')
+import openai
 load_dotenv()
-
-# Initialize tokenizer and model for title generation
-tokenizer = AutoTokenizer.from_pretrained("fabiochiu/t5-small-medium-title-generation")
-model = AutoModelForSeq2SeqLM.from_pretrained("fabiochiu/t5-small-medium-title-generation")
-max_input_length = 2048
 
 def convert_pdf_to_images(file_path, scale=300/72):
 
@@ -123,12 +114,13 @@ def extract_from_pdf(pdf_url):
         os.unlink(tmp_pdf_path)
 
 def generate_title(text):
-    inputs = ["summarize: " + text]
-    inputs = tokenizer(inputs, max_length=max_input_length, truncation=True, return_tensors="pt")
-    output = model.generate(**inputs, num_beams=8, do_sample=True, min_length=6, max_length=24)
-    decoded_output = tokenizer.batch_decode(output, skip_special_tokens=True)[0]
-    predicted_title = nltk.sent_tokenize(decoded_output.strip())[0]
-    return predicted_title
+    prompt=f"Generate a compelling title for the following text:\n\n{text}"
+    response = openai.ChatCompletion.create(
+                  model="gpt-3.5-turbo-0125",
+                  messages=[{"role": "system", "content": 'You are an intelligent helpful assistant'},
+                            {"role": "user", "content": prompt}
+                  ])
+    return response.choices[0].message.content
 
 def extract_text_from_url(url):
     try:
