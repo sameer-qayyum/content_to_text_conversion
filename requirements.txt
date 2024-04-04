@@ -2,7 +2,6 @@ fastapi[all]
 openai==0.28
 python-dotenv
 pydantic==1.*
-langchain
 bs4
 tiktoken
 pypdfium2
