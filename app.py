@@ -1,20 +1,10 @@
 import os
 from dotenv import load_dotenv
-from langchain import PromptTemplate
-from langchain.agents import initialize_agent, Tool
-from langchain.agents import AgentType
-from langchain.chat_models import ChatOpenAI
-from langchain.prompts import MessagesPlaceholder
-from langchain.memory import ConversationSummaryBufferMemory
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains.summarize import load_summarize_chain
-from langchain.tools import BaseTool
 from pydantic import BaseModel, Field
 from typing import Type
 from bs4 import BeautifulSoup
 import requests
 import json
-from langchain.schema import SystemMessage
 from fastapi import FastAPI, HTTPException, Request
 from youtube_transcript_api import YouTubeTranscriptApi
 from pytesseract import image_to_string
