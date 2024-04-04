@@ -8,9 +8,6 @@ tiktoken
 pypdfium2
 pytesseract
 pillow
-transformers
-torch
-nltk
 youtube_transcript_api
 beautifulsoup4
 requests
